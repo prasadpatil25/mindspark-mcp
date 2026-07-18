@@ -22,6 +22,8 @@ When someone opens that link, MindSpark decodes it client-side and shows the map
 
 There's exactly one tool, `create_map`, and it always renders the widget immediately (per the request that creating a map should always show it, not require a separate render step). There's no `add_node`/`get_map`/`list_maps` — with nothing stored server-side, there's nothing to look up later. To change a map, ask for it again with an updated outline; that produces a new link, and the old one keeps working exactly as it was.
 
+**This server runs in stateless MCP mode** (`sessionIdGenerator: undefined` on the transport) — every request, including the `initialize` handshake itself, is handled by its own fresh, independent server instance, with nothing shared between requests at all. This isn't just a simplification; it fixes a real bug. An earlier version tracked sessions in a plain in-memory `Map`, which works fine in local testing (one long-running process) but not on a real, deployed Cloudflare Worker — Cloudflare gives no guarantee that two consecutive requests land on the same isolate, so a session created during `initialize` could be invisible to the very next request if it happened to route elsewhere, surfacing as an opaque connector-setup failure with no useful error message. Since `create_map` never depended on any state between calls anyway, stateless mode isn't a workaround — it's the design that actually matches what this server does. Verified directly: `test/index.test.mjs` simulates the failure mode explicitly (a `tools/call` request sharing zero JS state with any prior request, and two concurrent calls that don't cross-talk) and confirms both work correctly.
+
 The encoding itself now lives in `../src/share-link.js` (shared with the main `mcp-server/` project) rather than being local to this one — the other two servers' `render_map` also produces these same universally-viewable links for their own "Open in MindSpark" button now, instead of a login-gated `?map=<id>` deep link that only resolved for whoever's GitHub account the map happened to live in.
 
 ## Setup
@@ -74,6 +76,11 @@ node test/server.test.mjs       # the real MCP protocol: tool registration, widg
                                  # full create_map call whose returned link is independently decoded
                                  # and checked against the structuredContent the widget receives —
                                  # confirming they're the same data, not just similarly-shaped
+node test/index.test.mjs        # the Worker's HTTP routing in stateless mode — specifically simulates
+                                 # the real bug this fixes: a tools/call request sharing zero JS state
+                                 # with any prior request (matching Cloudflare's actual multi-isolate
+                                 # behavior, which local dev testing alone can't surface), plus two
+                                 # concurrent calls confirmed not to cross-talk
 ```
 
 Beyond the automated tests, this was also verified as an actual running Worker (Wrangler's `unstable_dev`, not just mocked unit tests): bundled for real, then driven through a genuine `initialize` handshake and a real `create_map` tool call with no authentication header of any kind, confirming the whole chain — bundling, session handling, the widget resource, and the share-link encoding — works together end to end, not just in isolation.

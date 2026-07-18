@@ -2,58 +2,27 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { createServer } from './server.js';
 import { WIDGET_HTML } from './widget-html.generated.js';
 
-// One transport per MCP session — same reasoning as cloudflare-oauth's API
-// handler: a single shared transport can only complete one initialize handshake
-// for its entire lifetime (confirmed directly against the SDK's source during
-// that server's development), so each new connecting client needs its own.
-// Unlike the OAuth server, there is no per-user identity here at all — every
-// session is equally anonymous, so there's nothing to isolate sessions BY beyond
-// the session id itself.
-const sessions = new Map();
-const SESSION_IDLE_MS = 30 * 60 * 1000;
-
-function reapIdleSessions() {
-  const now = Date.now();
-  for (const [id, s] of sessions) if (now - s.lastUsed > SESSION_IDLE_MS) sessions.delete(id);
-}
-function isInitializeRequest(body) {
-  return body && typeof body === 'object' && !Array.isArray(body) && body.method === 'initialize';
-}
-
-async function newSession(env) {
-  const mcpServer = createServer({ appUrl: env.MINDSPARK_APP_URL, widgetHTML: WIDGET_HTML });
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-    onsessioninitialized: (sessionId) => { sessions.set(sessionId, { transport, lastUsed: Date.now() }); },
-    onsessionclosed: (sessionId) => { sessions.delete(sessionId); }
-  });
-  await mcpServer.connect(transport);
-  return transport;
-}
-
+// Stateless by design, not just by omission: create_map has no dependency on
+// any state between calls (every call is fully self-contained), so there is
+// nothing that needs to persist across requests in the first place. This
+// matters specifically on Cloudflare Workers — a real, deployed Worker does
+// NOT guarantee the same isolate handles two consecutive requests, even
+// seconds apart, so a session tracked in a module-level Map (the previous
+// version of this file) could be created on one isolate and be invisible to
+// the very next request if it lands on a different one. That's a real,
+// confirmed-plausible cause of connector setup failing right after a
+// successful-looking initialize. Stateless mode (sessionIdGenerator: undefined)
+// sidesteps this entirely rather than working around it: every request,
+// including the initialize handshake itself, is handled independently by its
+// own fresh transport, so there's no cross-request state to lose.
 async function handleMcp(request, env) {
-  reapIdleSessions();
   if (!env.MINDSPARK_APP_URL) {
     return new Response(JSON.stringify({ error: 'Server misconfigured: MINDSPARK_APP_URL is not set' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
-
-  const existingId = request.headers.get('mcp-session-id');
-  if (existingId && sessions.has(existingId)) {
-    const s = sessions.get(existingId);
-    s.lastUsed = Date.now();
-    return s.transport.handleRequest(request);
-  }
-
-  let body;
-  if (request.method === 'POST') {
-    try { body = await request.clone().json(); } catch (e) { /* not JSON — let the transport reject it */ }
-  }
-  if (!existingId && isInitializeRequest(body)) {
-    const transport = await newSession(env);
-    return transport.handleRequest(request);
-  }
-  if (existingId) return new Response(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-  return new Response(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: 'No session — send an initialize request first' }, id: body?.id ?? null }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  const mcpServer = await createServer({ appUrl: env.MINDSPARK_APP_URL, widgetHTML: WIDGET_HTML });
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  await mcpServer.connect(transport);
+  return transport.handleRequest(request);
 }
 
 function corsHeaders(res) {

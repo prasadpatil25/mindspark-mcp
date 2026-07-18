@@ -10,7 +10,7 @@
     "predeploy": "npm run build:widget",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "npm run build:widget --silent && node test/map-builder.test.mjs && node test/server.test.mjs"
+    "test": "npm run build:widget --silent && node test/map-builder.test.mjs && node test/server.test.mjs && node test/index.test.mjs"
   },
   "license": "MIT",
   "dependencies": {
