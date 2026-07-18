@@ -1,0 +1,299 @@
+<div id="widget-root">
+  <div id="titlebar">Mind map</div>
+  <div id="scroll"><div id="empty">Waiting for map data&hellip;</div></div>
+  <div id="footer"></div>
+</div>
+
+<style>
+  #widget-root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+  #titlebar {
+    padding: 10px 14px; font-weight: 600; font-size: 14px;
+    color: #20242e; border-bottom: 1px solid rgba(0,0,0,0.08); flex: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    #titlebar { color: #e8eaf0; border-bottom-color: rgba(255,255,255,0.1); }
+  }
+  #scroll { flex: 1; overflow: auto; padding: 8px; }
+  .edge { fill: none; stroke: #b8bfce; stroke-width: 1.5; }
+  @media (prefers-color-scheme: dark) { .edge { stroke: #454b5c; } }
+  .node text { pointer-events: none; }
+  #empty, #error {
+    padding: 24px; text-align: center; color: #6b7280; font-size: 13px;
+  }
+  #debug {
+    margin: 12px; padding: 10px 12px; border: 1px solid #e2b93b; border-radius: 8px;
+    background: #fff8e1; color: #6b5900; font-size: 11px; font-family: ui-monospace, monospace;
+    white-space: pre-wrap; text-align: left; line-height: 1.5;
+  }
+  @media (prefers-color-scheme: dark) {
+    #debug { background: #332b00; color: #f0d878; border-color: #6b5900; }
+  }
+  #footer {
+    flex: none; padding: 8px 14px; border-top: 1px solid rgba(0,0,0,0.08);
+    font-size: 12.5px; display: none;
+  }
+  @media (prefers-color-scheme: dark) { #footer { border-top-color: rgba(255,255,255,0.1); } }
+  #footer.show { display: block; }
+  #footer a, #footer .footer-link {
+    color: #3a5fc4; text-decoration: none; cursor: pointer; font-weight: 500;
+  }
+  #footer a:hover, #footer .footer-link:hover { text-decoration: underline; }
+  #footer .footer-disabled { color: #9aa0ab; cursor: default; }
+  @media (prefers-color-scheme: dark) {
+    #footer a, #footer .footer-link { color: #7c9eff; }
+    #footer .footer-disabled { color: #6b7280; }
+  }
+</style>
+
+<script>
+/* ---- Tested layout + rendering logic (web/layout.mjs, web/render-svg.mjs) ----
+   Injected verbatim below by the server at startup, with only the ES module
+   syntax stripped — this is the exact code covered by
+   test/widget-layout.mjs and test/widget-render.mjs, not a hand-copied variant. */
+/*__LAYOUT_AND_RENDER_CODE__*/
+
+var __rendered = false;
+var __currentStructured = null;
+var __collapsedIds = new Set();
+
+function renderMap() {
+  const el = document.getElementById('scroll');
+  const structured = __currentStructured;
+  const nodes = structured && structured.nodes;
+  const rootId = structured && structured.rootId;
+  if (!nodes || !rootId || !nodes[rootId]) {
+    el.innerHTML = '<div id="empty">No map data received.</div>';
+    return;
+  }
+  try {
+    const { svg } = renderMindMapSVG(nodes, rootId, { mapColor: structured.color, collapsedIds: __collapsedIds });
+    el.innerHTML = svg;
+    __rendered = true;
+    const title = document.getElementById('titlebar');
+    if (title && structured.title) title.textContent = structured.title;
+  } catch (e) {
+    el.innerHTML = '<div id="error">Could not render this map: ' + String(e && e.message || e) + '</div>';
+  }
+}
+
+// Read-only view: clicking a node's +/- toggle expands or collapses that branch
+// locally in the widget (not written back to the map — editing stays in the real
+// app). Event delegation on the scroll container, since the SVG is replaced
+// wholesale on every render rather than diffed.
+document.getElementById('scroll').addEventListener('click', function (event) {
+  const toggle = event.target.closest('[data-toggle-id]');
+  if (!toggle) return;
+  const id = toggle.getAttribute('data-toggle-id');
+  if (__collapsedIds.has(id)) __collapsedIds.delete(id); else __collapsedIds.add(id);
+  renderMap();
+});
+
+function renderFooter(structured) {
+  const el = document.getElementById('footer');
+  if (!structured || !structured.id) { el.className = ''; el.innerHTML = ''; return; }
+  el.className = 'show';
+  // shareUrl (a full, self-contained "#view=" link with the map data embedded in
+  // it) takes priority when present — used by the no-login server, which has no
+  // persisted map to deep-link to by id at all, only the share link itself.
+  // Falls back to the existing appUrl + ?map=<id> deep link otherwise, exactly as
+  // before — the other two servers never set shareUrl, so this doesn't change
+  // their behavior at all.
+  const url = structured.shareUrl || (structured.appUrl ? structured.appUrl.replace(/\/+$/, '') + '/?map=' + encodeURIComponent(structured.id) : null);
+  if (url) {
+    el.innerHTML = '<span class="footer-link" id="openInMindSpark">Open in MindSpark \u2197</span>';
+    document.getElementById('openInMindSpark').addEventListener('click', function () {
+      if (window.openai && typeof window.openai.openExternal === 'function') {
+        window.openai.openExternal({ href: url });
+      } else {
+        window.open(url, '_blank', 'noopener');
+      }
+    });
+  } else {
+    el.innerHTML = '<span class="footer-disabled">Open in MindSpark (server admin: set MINDSPARK_APP_URL to enable)</span>';
+  }
+}
+
+function renderInto(structured) {
+  __currentStructured = structured;
+  if (structured && structured.nodes && __collapsedIds.size === 0) {
+    // Seed local fold state from the real map's own collapsed flags, so the
+    // widget starts matching what MindSpark itself currently shows rather than
+    // ignoring existing fold state.
+    for (const id in structured.nodes) if (structured.nodes[id].collapsed) __collapsedIds.add(id);
+
+    // On top of that, default anything beyond depth 1 (root + its immediate
+    // children) to collapsed too — a quick-glance widget shouldn't open already
+    // overwhelmed by a deeply nested map. This is additive with the map's own
+    // collapsed flags above, never overriding an explicit expand — it only
+    // affects nodes that had no explicit fold state at all.
+    if (structured.rootId && structured.nodes[structured.rootId]) {
+      const depth = {};
+      depth[structured.rootId] = 0;
+      const queue = [structured.rootId];
+      while (queue.length) {
+        const id = queue.shift();
+        for (const cid in structured.nodes) {
+          if (structured.nodes[cid].parent === id && !(cid in depth)) {
+            depth[cid] = depth[id] + 1;
+            queue.push(cid);
+          }
+        }
+      }
+      for (const id in depth) if (depth[id] === 1) __collapsedIds.add(id);
+    }
+  }
+  renderMap();
+  renderFooter(structured);
+}
+
+/* ---- ChatGPT / MCP Apps bridge ----
+   Talks to a real host (ChatGPT, Claude Desktop, etc.) and can't be exercised in an
+   automated test the way the layout/rendering code above was. Written defensively:
+   tries several ways the initial data might arrive rather than assuming one exact
+   contract, and — importantly — announces readiness (ui/notifications/initialized)
+   immediately rather than gating it behind waiting for a response to ui/initialize.
+   That gate was a real bug: if the host doesn't reply to that specific request the
+   way this code expected, awaiting it would hang forever and the host would never
+   learn the widget was ready to receive anything. A notification needs no response,
+   so it can't hang — send it eagerly, and treat ui/initialize's own response (if any
+   ever arrives) as a bonus source of data, not a precondition for anything else. */
+(function () {
+  let rpcId = 0;
+  const pending = new Map();
+  const log = [];
+  function record(kind, detail) {
+    log.push('[' + new Date().toISOString().slice(11, 19) + '] ' + kind + (detail !== undefined ? ': ' + detail : ''));
+    if (log.length > 30) log.shift();
+  }
+
+  function notify(method, params) {
+    try { window.parent.postMessage({ jsonrpc: '2.0', method, params }, '*'); record('sent notify', method); }
+    catch (e) { record('notify failed', method + ' — ' + e.message); }
+  }
+  function request(method, params, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const id = ++rpcId;
+      const timer = timeoutMs ? setTimeout(() => { pending.delete(id); reject(new Error('timeout')); }, timeoutMs) : null;
+      pending.set(id, { resolve: v => { if (timer) clearTimeout(timer); resolve(v); }, reject: e => { if (timer) clearTimeout(timer); reject(e); } });
+      try { window.parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*'); record('sent request', method); }
+      catch (e) { pending.delete(id); if (timer) clearTimeout(timer); reject(e); }
+    });
+  }
+
+  // Pull structuredContent out of whatever shape the host handed us — different
+  // hosts/SDK examples describe this payload's shape slightly differently
+  // (some show window.openai.toolOutput as the structuredContent directly, at
+  // least one shows it nested under .result.structuredContent) — check the
+  // plausible spots rather than assume one exact contract.
+  function extractStructuredContent(payload) {
+    if (!payload) return null;
+    if (payload.nodes && payload.rootId) return payload;   // already the right shape
+    return payload.structuredContent
+      || (payload.result && payload.result.structuredContent)
+      || (payload.toolOutput && payload.toolOutput.structuredContent)
+      || payload.toolOutput
+      || null;
+  }
+
+  window.addEventListener('message', (event) => {
+    const msg = event.data;
+    if (!msg) return;
+    record('postMessage received', 'source==parent:' + (event.source === window.parent) + ' data:' + JSON.stringify(msg).slice(0, 200));
+    if (msg.jsonrpc !== '2.0') return;
+
+    if (typeof msg.id !== 'undefined' && msg.id !== null && (msg.result || msg.error)) {
+      const p = pending.get(msg.id);
+      if (!p) return;
+      pending.delete(msg.id);
+      if (msg.error) p.reject(msg.error); else p.resolve(msg.result);
+      return;
+    }
+
+    if (msg.method === 'ui/notifications/tool-result' || msg.method === 'ui/notifications/tool-input') {
+      const structured = extractStructuredContent(msg.params);
+      if (structured) renderInto(structured);
+      else record('tool-result had no extractable structuredContent', JSON.stringify(msg.params).slice(0, 200));
+    }
+  });
+
+  function showDiagnostics(reason, stillWaiting) {
+    if (__rendered) return;   // something else already succeeded — no need to alarm
+    const el = document.getElementById('scroll');
+    const info = [
+      (stillWaiting ? 'Still waiting for map data' : 'Widget did not receive map data') + ' (' + reason + ').',
+      window.openai && window.openai.toolOutput ? '' : (window.openai ? 'window.openai present, toolOutput not yet set.' : 'window.openai is not present in this frame.'),
+      'Messages received from host: ' + log.length,
+      log.length ? '--- log ---' : '(no postMessage events received at all)',
+      ...log
+    ].filter(Boolean).join('\n');
+    el.innerHTML = '<div id="empty">' + (stillWaiting ? 'Still waiting for map data\u2026' : 'No map data received.') + '</div><div id="debug"></div>';
+    document.getElementById('debug').textContent = info;
+  }
+
+  function tryOpenaiToolOutput() {
+    if (__rendered) return true;
+    if (window.openai && window.openai.toolOutput) {
+      const structured = extractStructuredContent(window.openai.toolOutput);
+      if (structured) { renderInto(structured); return true; }
+    }
+    return false;
+  }
+
+  async function boot() {
+    record('boot start', 'window.openai=' + (typeof window.openai !== 'undefined'));
+
+    tryOpenaiToolOutput();
+    window.addEventListener('openai:set_globals', (event) => {
+      record('openai:set_globals fired');
+      const fromEvent = event && event.detail && event.detail.globals && event.detail.globals.toolOutput;
+      if (!__rendered && fromEvent) { const s = extractStructuredContent(fromEvent); if (s) { renderInto(s); return; } }
+      tryOpenaiToolOutput();
+    });
+
+    // Announce readiness immediately — this cannot hang, unlike waiting on a
+    // request/response round trip, and is the one thing every version of the
+    // handshake agrees the host needs to hear before it will push data.
+    notify('ui/notifications/initialized', {});
+
+    // Also attempt the request/response form, in case this host's ui/initialize
+    // reply itself carries the initial data — but bounded, so a host that never
+    // replies can't leave the widget hanging.
+    try {
+      const initResult = await request('ui/initialize', { protocolVersion: '2025-06-18' }, 4000);
+      const structured = extractStructuredContent(initResult);
+      if (structured && !__rendered) renderInto(structured);
+    } catch (e) {
+      record('ui/initialize request did not resolve', e.message);
+    }
+
+    // window.openai may populate well after boot on a live tool call — a page
+    // refresh working around a stuck widget was the tell: refreshing loads the
+    // widget only after the host has already committed the result to its state,
+    // so the data is there immediately, while a live call can apparently take
+    // longer than a short poll window allows. Keep checking indefinitely (at a
+    // slower rate after the first burst) rather than giving up — a fixed number
+    // of tries was the actual bug, not the polling approach itself.
+    let tries = 0;
+    let shownDiagnostics = false;
+    const FAST_TRIES = 20;       // ~5s at 250ms
+    const SLOW_INTERVAL_MS = 2000;
+    const MAX_MINUTES = 5;
+    const startedAt = Date.now();
+    function tick() {
+      tries++;
+      if (__rendered) return;
+      if (tryOpenaiToolOutput()) return;
+      if (!shownDiagnostics && tries >= FAST_TRIES) {
+        shownDiagnostics = true;
+        showDiagnostics('waited ' + Math.round((Date.now() - startedAt) / 1000) + 's so far, still checking', true);
+      } else if (shownDiagnostics && !__rendered) {
+        showDiagnostics('waited ' + Math.round((Date.now() - startedAt) / 1000) + 's so far, still checking', true);
+      }
+      if (Date.now() - startedAt > MAX_MINUTES * 60000) return;   // stop only after a very generous cap
+      setTimeout(tick, tries < FAST_TRIES ? 250 : SLOW_INTERVAL_MS);
+    }
+    setTimeout(tick, 250);
+  }
+  boot();
+})();
+</script>

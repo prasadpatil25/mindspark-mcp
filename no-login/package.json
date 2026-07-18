@@ -1,0 +1,23 @@
+{
+  "name": "mindspark-mcp-no-login",
+  "version": "1.0.0",
+  "description": "No-login MCP server for MindSpark — anyone can create and view maps via read-only share links, no GitHub account or sign-in required",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "build:widget": "node scripts/build-widget-html.mjs",
+    "predev": "npm run build:widget",
+    "predeploy": "npm run build:widget",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "npm run build:widget --silent && node test/map-builder.test.mjs && node test/server.test.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.112.0"
+  }
+}

@@ -1,0 +1,10 @@
+name = "mindspark-mcp-no-login"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Only one thing to configure, and it's not a secret — the public URL where the
+# real MindSpark app is hosted, used to build "<that-url>/#view=..." share links.
+# Set via: npx wrangler secret put MINDSPARK_APP_URL   (or add to [vars] below —
+# it isn't sensitive, but secrets work as plain values fine, so either is OK).
+[vars]
+MINDSPARK_APP_URL = "https://REPLACE_WITH_YOUR_MINDSPARK_URL"

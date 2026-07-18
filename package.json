@@ -1,0 +1,27 @@
+{
+  "name": "mindspark-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for MindSpark — lets Claude (or ChatGPT, via HTTP) read, create, and edit your mind maps in your mindspark-maps GitHub repo",
+  "type": "module",
+  "bin": {
+    "mindspark-mcp": "./src/server.js"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "start:http": "node src/http-server.js",
+    "test": "node test/widget-layout.mjs && node test/widget-text-layout.mjs && node test/widget-render.mjs && node test/widget-assembly.mjs && node test/widget-interactivity.mjs && node test/share-link.test.mjs && node test/widget-integration.mjs && node test/e2e.mjs && node test/edge-cases.mjs && node test/http-e2e.mjs && node test/multi-session.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "fast-xml-parser": "^5.10.1",
+    "jsdom": "^29.1.1"
+  }
+}

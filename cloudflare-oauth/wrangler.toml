@@ -1,0 +1,18 @@
+name = "mindspark-mcp-oauth"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Secrets (set via `wrangler secret put <NAME>`, never in this file):
+#   GITHUB_CLIENT_ID
+#   GITHUB_CLIENT_SECRET
+#   COOKIE_ENCRYPTION_KEY   (any random string, e.g. `openssl rand -hex 32`)
+#
+# Optional vars (set via `wrangler secret put` too, or [vars] below for
+# non-secret values):
+#   MINDSPARK_GH_REPO   (defaults to "mindspark-maps")
+#   MINDSPARK_APP_URL   (enables the widget's "Open in MindSpark" link)

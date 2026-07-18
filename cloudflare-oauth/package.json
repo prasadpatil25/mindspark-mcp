@@ -1,0 +1,24 @@
+{
+  "name": "mindspark-mcp-oauth",
+  "version": "1.0.0",
+  "description": "Multi-user OAuth wrapper for mindspark-mcp — each user signs in with their own GitHub account instead of sharing one server-wide token",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "build:widget": "node scripts/build-widget-html.mjs",
+    "predev": "npm run build:widget",
+    "predeploy": "npm run build:widget",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "npm run build:widget --silent && node test/oauth-utils.test.mjs && node test/github-oauth.test.mjs && node test/github-handler.test.mjs && node test/mcp-api-handler.test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^4.112.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.8.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  }
+}
