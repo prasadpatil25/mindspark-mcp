@@ -98,7 +98,7 @@ export async function createServer(store, opts = {}) {
 
   server.registerTool('list_maps', {
     title: 'List MindSpark maps',
-    description: 'List all mind maps in the user\'s mindspark-maps GitHub repo, with id, title, and last-updated time.',
+    description: 'List all of the user\'s mind maps, with id, title, and last-updated time.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false }
   }, async () => {
