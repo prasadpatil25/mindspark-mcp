@@ -1,8 +1,18 @@
 # mindspark-mcp
 
-An MCP (Model Context Protocol) server for [MindSpark](https://github.com/prasadpatil25/mindspark). Lets Claude or ChatGPT read, create, and edit your mind maps directly — the same `mindspark-maps` GitHub repo the web app itself reads and writes.
+An MCP (Model Context Protocol) server for [MindSpark](https://github.com/prasadpatil25/mindspark). Lets Claude or ChatGPT read, create, and edit your mind maps directly — either the same `mindspark-maps` GitHub repo the web app itself reads and writes, **or**, if you self-host MindSpark, that server's own database directly, with no GitHub account involved at all.
 
-Two ways to run it: as a **local process** (Claude Desktop, Claude Code, any stdio-based MCP client), or over **HTTP** (ChatGPT, or any client that needs a network-reachable server). Same tools, same data, same GitHub repo either way — just a different transport.
+Two ways to run it: as a **local process** (Claude Desktop, Claude Code, any stdio-based MCP client), or over **HTTP** (ChatGPT, or any client that needs a network-reachable server). Same tools either way — just a different transport, and a choice of where the data actually lives (see below).
+
+## Two storage backends
+
+| | `MINDSPARK_GH_TOKEN` (GitHub) | `MINDSPARK_SELF_HOSTED_URL` (self-hosted) |
+|---|---|---|
+| Data lives in | your `mindspark-maps` GitHub repo | your self-hosted MindSpark server's own SQLite database |
+| Setup | a GitHub personal access token (below) | a URL — no account or token needed |
+| Works with | MindSpark cloud mode (static/GitHub-backed) *or* self-hosted | MindSpark self-hosted mode (`node server.js`) only |
+
+They're mutually exclusive — set one or the other. If you're self-hosting MindSpark (`node server.js`), you almost certainly want `MINDSPARK_SELF_HOSTED_URL`: it points this server at the *same* REST API (`/api/maps`) your self-hosted MindSpark already exposes, so a map created here shows up in the app immediately, with nothing synced through GitHub. See [Option C](#option-c--self-hosted-mindspark-local-or-http) below. The rest of this README (steps 1–2, Options A/B) covers the original GitHub-backed mode.
 
 ## What it can do
 
@@ -39,9 +49,12 @@ If the widget doesn't render, it shows its own diagnostics directly in the chat 
 ## Requirements
 
 - Node.js 18 or later
-- A GitHub account with (or willing to have) a `mindspark-maps` repo — the same one the MindSpark web app uses when you sign in with GitHub. If you've never signed into MindSpark's cloud mode, the server creates this repo (private) on first use.
+- **Self-hosted mode** (`MINDSPARK_SELF_HOSTED_URL`): just a running self-hosted MindSpark server — skip straight to [Option C](#option-c--self-hosted-mindspark-local-or-http).
+- **GitHub mode** (`MINDSPARK_GH_TOKEN`, steps 1–2 below): a GitHub account with (or willing to have) a `mindspark-maps` repo — the same one the MindSpark web app uses when you sign in with GitHub. If you've never signed into MindSpark's cloud mode, the server creates this repo (private) on first use.
 
 ## 1. Get a GitHub token
+
+(Skip this and step 2 if you're using self-hosted mode — go straight to [Option C](#option-c--self-hosted-mindspark-local-or-http).)
 
 First, check whether you already have a `mindspark-maps` repository under your GitHub account (you would if you've ever signed into MindSpark's cloud mode). This determines which setup is simpler.
 
@@ -132,13 +145,41 @@ This is a **single-user setup**: the token still comes from one environment vari
 
 Every tool call re-authenticates against GitHub with the same token as the local version — nothing about the data path changes, only how ChatGPT reaches the server. Each client connection gets its own session (a fresh handshake creates a new one); idle sessions are cleaned up automatically after 30 minutes.
 
+### Option C — self-hosted MindSpark (local or HTTP)
+
+If you're running MindSpark yourself (`node server.js` — see the main [MindSpark README](https://github.com/prasadpatil25/mindspark#quick-start-self-hosted)), point this server at it directly instead of using a GitHub token:
+
+```json
+{
+  "mcpServers": {
+    "mindspark": {
+      "command": "node",
+      "args": ["/absolute/path/to/mindspark-mcp/src/server.js"],
+      "env": {
+        "MINDSPARK_SELF_HOSTED_URL": "http://localhost:3000"
+      }
+    }
+  }
+}
+```
+
+Or over HTTP, the same way as Option B:
+
+```bash
+MINDSPARK_SELF_HOSTED_URL=http://localhost:3000 npm run start:http
+```
+
+No GitHub account, repo, or token involved — reads and writes go straight to your MindSpark server's `/api/maps` REST API, so a map created here appears in the app immediately (and vice versa). This is the natural pairing for a self-hosted MindSpark instance that isn't on `localhost` (e.g. reachable over a private network/VPN): set `MINDSPARK_SELF_HOSTED_URL` to wherever it's actually reachable from, and see `MINDSPARK_MCP_TOKEN` below if you're running the HTTP transport somewhere more than just your own machine can reach.
+
 ### Environment variables
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `MINDSPARK_GH_TOKEN` | Yes | — | GitHub token, see step 1 |
-| `MINDSPARK_GH_REPO` | No | `mindspark-maps` | Repo name, if you use something other than the default |
-| `MINDSPARK_APP_URL` | No | — | The URL where your MindSpark app is hosted (e.g. `https://you.github.io/mindspark` or your Cloudflare Worker URL). When set, `render_map`'s widget shows an "Open in MindSpark" link at the bottom — a read-only, universally-viewable share link (`<url>/#view=<encoded-map>`, the same format MindSpark's own "Copy share link" feature produces), so it works for anyone the link is shared with, not just whoever's GitHub account the map lives in. Without it, the widget still shows the link slot but explains it needs this variable set, rather than a broken link. |
+| `MINDSPARK_GH_TOKEN` | One of this or `MINDSPARK_SELF_HOSTED_URL` | — | GitHub token, see step 1. Mutually exclusive with `MINDSPARK_SELF_HOSTED_URL` — if both are set, self-hosted wins. |
+| `MINDSPARK_GH_REPO` | No | `mindspark-maps` | Repo name, if you use something other than the default. Only used with `MINDSPARK_GH_TOKEN`. |
+| `MINDSPARK_SELF_HOSTED_URL` | One of this or `MINDSPARK_GH_TOKEN` | — | Base URL of a self-hosted MindSpark server (e.g. `http://localhost:3000`, or wherever you've deployed it). See Option C above. |
+| `MINDSPARK_APP_URL` | No | — | The URL where your MindSpark app is hosted (e.g. `https://you.github.io/mindspark`, your Cloudflare Worker URL, or the same URL as `MINDSPARK_SELF_HOSTED_URL` if self-hosted). When set, `render_map`'s widget shows an "Open in MindSpark" link at the bottom — a read-only, universally-viewable share link (`<url>/#view=<encoded-map>`, the same format MindSpark's own "Copy share link" feature produces), so it works for anyone the link is shared with, not just whoever's GitHub account the map lives in. Without it, the widget still shows the link slot but explains it needs this variable set, rather than a broken link. |
+| `MINDSPARK_MCP_TOKEN` | No | — (unset = open) | HTTP transport only. When set, every request to `/mcp` must carry `Authorization: Bearer <token>` or it's rejected with 401. Neither storage credential above gates *who* can reach this server, only what it's allowed to do once reached — set this if the HTTP server is reachable by anything beyond just you (a private network, not just `localhost`/a personal tunnel). Unset by default so existing single-user deployments keep working unchanged. |
 | `PORT` | No (HTTP only) | `3300` | Port for the HTTP server |
 
 ## Example
@@ -188,13 +229,23 @@ node test/http-e2e.mjs           # same protocol + widget tests but over real HT
                                   # server process, connects with a real HTTP client
 node test/multi-session.mjs      # confirms multiple independent client sessions can each connect and
                                   # operate without interfering with each other
+node test/self-hosted-store.test.mjs # SelfHostedStore against a mocked self-hosted REST API: constructor
+                                  # validation, list/get/save/delete, save always issues a PUT (the
+                                  # self-hosted server's upsert() handles create-or-update either way)
+node test/self-hosted-e2e.mjs    # same full-protocol coverage as test/e2e.mjs, but backed by
+                                  # SelfHostedStore instead of GitHubStore — proves the self-hosted
+                                  # mode works through the real tool surface, not just in isolation
+node test/http-auth.test.mjs     # MINDSPARK_MCP_TOKEN: unauthenticated/wrong-token requests to /mcp
+                                  # are rejected (401), the correct token works, and the health check
+                                  # stays reachable either way; also confirms default (unset) behavior
+                                  # is unchanged from before this option existed
 ```
 
 All of these run entirely offline — no real GitHub account, token, or MCP client (ChatGPT/Claude) needed. What they can't cover is noted in "The visual widget" section above — that part needs a live check.
 
 ## Security notes
 
-- Your token is read from an environment variable, never logged, never sent anywhere except `api.github.com`.
-- Use a fine-grained token scoped to just the `mindspark-maps` repo where possible, not a broad classic token.
+- Your token (GitHub mode) is read from an environment variable, never logged, never sent anywhere except `api.github.com`. Self-hosted mode has no token at all — access is whatever can reach `MINDSPARK_SELF_HOSTED_URL`.
+- Use a fine-grained token scoped to just the `mindspark-maps` repo where possible, not a broad classic token (GitHub mode only).
 - This server can create, edit, and delete maps and nodes on your behalf whenever an MCP client decides to call it — the same trust model as giving any MCP server file access. Only run it with clients and configurations you trust.
-- **HTTP mode specifically:** the tunnel URL is not authenticated — anyone who has it can call every tool as you for as long as the tunnel is up. Treat it like a bearer token: don't post it publicly, and stop `ngrok`/kill the server when you're done testing. This mode is meant for one person trying this out, not for sharing with others — see the earlier note about what a real multi-user deployment would need instead (per-user OAuth, hosted rather than tunneled).
+- **HTTP mode specifically:** by default, whoever can reach the port can call every tool — there's no built-in identity check. For a tunnel (Option B) this is inherent to the tunnel-URL-as-secret model: don't post it publicly, and stop `ngrok`/kill the server when you're done testing. For anything longer-lived or reachable by more than just you (e.g. a self-hosted deployment on a private network), set `MINDSPARK_MCP_TOKEN` so every request needs `Authorization: Bearer <token>` — this doesn't add per-user identity (still single-shared-secret, not OAuth), just a gate against anything that merely happens to be able to route to the port. This mode overall is meant for one person/one deployment, not multi-tenant sharing — see the earlier note about what a real multi-user deployment would need instead (per-user OAuth, hosted rather than tunneled).
