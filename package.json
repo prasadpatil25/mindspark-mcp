@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "start:http": "node src/http-server.js",
-    "test": "node test/widget-layout.mjs && node test/widget-text-layout.mjs && node test/widget-render.mjs && node test/widget-assembly.mjs && node test/widget-interactivity.mjs && node test/share-link.test.mjs && node test/widget-integration.mjs && node test/e2e.mjs && node test/edge-cases.mjs && node test/http-e2e.mjs && node test/multi-session.mjs"
+    "test": "node test/widget-layout.mjs && node test/widget-text-layout.mjs && node test/widget-render.mjs && node test/widget-assembly.mjs && node test/widget-interactivity.mjs && node test/share-link.test.mjs && node test/widget-integration.mjs && node test/e2e.mjs && node test/edge-cases.mjs && node test/http-e2e.mjs && node test/multi-session.mjs && node test/self-hosted-store.test.mjs && node test/self-hosted-e2e.mjs && node test/http-auth.test.mjs"
   },
   "engines": {
     "node": ">=18"

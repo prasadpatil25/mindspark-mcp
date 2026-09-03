@@ -1,25 +1,33 @@
 #!/usr/bin/env node
 // HTTP entry point — same tools as src/server.js, reachable over the network instead
 // of spawned as a local process. This is the "single user, run it yourself and expose
-// it via a tunnel" path: the GitHub token still comes from one environment variable,
-// same as the stdio version. It is NOT a multi-tenant server — anyone who can reach
-// this port can call every tool as you, using your token. Put it behind a tunnel
-// (ngrok) for testing, and treat the URL as a secret while it's running.
+// it via a tunnel" path: the store's own credentials (GitHub token, or a self-hosted
+// server's URL) still come from environment variables, same as the stdio version.
+// It is NOT a multi-tenant server — anyone who can reach this port and pass the
+// MCP_TOKEN check (if set) can call every tool with the same underlying access.
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { GitHubStore } from './github-store.js';
+import { resolveStoreFromEnv } from './store-factory.js';
 import { createServer } from './server.js';
 
-const token = process.env.MINDSPARK_GH_TOKEN;
-if (!token) {
-  console.error('MINDSPARK_GH_TOKEN is not set. See README.md.');
-  process.exit(1);
-}
-const repo = process.env.MINDSPARK_GH_REPO || 'mindspark-maps';
+let store;
+try { store = resolveStoreFromEnv(); }
+catch (e) { console.error(e.message); process.exit(1); }
 const port = parseInt(process.env.PORT || '3300', 10);
 
-const store = new GitHubStore({ token, repo });
+// Optional shared-secret bearer check on the MCP endpoint itself. Neither transport
+// credential above (GitHub token, self-hosted URL) gates *who* can reach this HTTP
+// server — only what it's allowed to do once reached — so without this, anyone who
+// can route to the port can call every tool. Off by default (matching this server's
+// original tunnel-and-treat-the-URL-as-a-secret model) so existing single-user
+// deployments aren't broken by upgrading; set MINDSPARK_MCP_TOKEN to require
+// `Authorization: Bearer <token>` on every MCP request.
+const mcpToken = process.env.MINDSPARK_MCP_TOKEN;
+function isAuthorized(req) {
+  if (!mcpToken) return true;
+  return req.headers['authorization'] === `Bearer ${mcpToken}`;
+}
 
 // Stateful mode (the SDK's stateless mode 500s on the notifications/initialized
 // message every client sends right after connecting — confirmed directly against a
@@ -119,6 +127,11 @@ const httpServer = http.createServer(async (req, res) => {
   // with just the tunnel's base URL (no /mcp suffix) is an easy, common mistake to
   // make, and previously failed with a silent 404 instead of connecting.
   if (req.url === '/mcp' || req.url.startsWith('/mcp/') || (req.url === '/' && req.method !== 'GET')) {
+    if (!isAuthorized(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized' }, id: null }));
+      return;
+    }
     await handleMcp(req, res);
     return;
   }

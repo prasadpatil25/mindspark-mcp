@@ -2,7 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { GitHubStore } from './github-store.js';
+import { resolveStoreFromEnv } from './store-factory.js';
 import { outlineToMap } from './outline-parser.js';
 import { buildShareToken, buildShareUrl } from './share-link.js';
 // No static import of build-widget.mjs here on purpose — its top-level code runs
@@ -98,7 +98,7 @@ export async function createServer(store, opts = {}) {
 
   server.registerTool('list_maps', {
     title: 'List MindSpark maps',
-    description: 'List all mind maps in the user\'s mindspark-maps GitHub repo, with id, title, and last-updated time.',
+    description: 'List all of the user\'s mind maps, with id, title, and last-updated time.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false }
   }, async () => {
@@ -300,15 +300,9 @@ export async function createServer(store, opts = {}) {
 }
 
 async function main() {
-  const token = process.env.MINDSPARK_GH_TOKEN;
-  if (!token) {
-    console.error('MINDSPARK_GH_TOKEN is not set. Create a GitHub personal access token');
-    console.error('(fine-grained, scoped to a "mindspark-maps" repo, with Contents read/write)');
-    console.error('and set it as MINDSPARK_GH_TOKEN in your MCP client config. See README.md.');
-    process.exit(1);
-  }
-  const repo = process.env.MINDSPARK_GH_REPO || 'mindspark-maps';
-  const store = new GitHubStore({ token, repo });
+  let store;
+  try { store = resolveStoreFromEnv(); }
+  catch (e) { console.error(e.message); process.exit(1); }
   const server = await createServer(store, { appUrl: process.env.MINDSPARK_APP_URL });
   const transport = new StdioServerTransport();
   await server.connect(transport);
